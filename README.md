@@ -40,3 +40,27 @@ The proposed framework mainly contains three components:
    - Modified Restormer
    - Shadow-specific restoration constraints
    - Specular-reflection restoration constraints
+
+## Environment
+
+### Hyperbolic Feature Extraction
+
+Python == 3.6.15
+
+DeepLabV3+ with ResNet-v2-101 backbone
+
+### Multi-Channel Restoration
+
+Python == 3.10.20
+
+PyTorch == 2.3.1
+
+CUDA == 12.1
+
+Ubuntu == 20.04.6
+
+### Experimental Hardware
+
+NVIDIA GeForce RTX 3090 Ti
+
+Intel Core i9-12900K
