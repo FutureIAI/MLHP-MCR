@@ -1,0 +1,62 @@
+# general settings
+name: FPC_18Channel_Offline_Evaluation       # 🌟 修改项一：彻底进行物理隔离，避免覆盖 15 通道版本的测试日志
+model_type: ImageCleanModel
+scale: 1
+num_gpu: 1
+manual_seed: 100
+
+# 测试集数据路径
+datasets:
+  test_1:
+    name: FPC_Test_Group
+    type: Dataset_FPC_18Channel             # 🌟 修改项二：升级为 18 通道测试集类名，严格对齐数据加载器
+    prior_scale: 1                        # 测试先验权重初始调节系数（后续可在 test.py 中动态改写并在 [0,1] 区间调节）
+
+    # 🌟 测试集图片绝对路径映射
+    dataroot_gt: /home/cgz/lzc/Restormer/Restormer-main/test/2026FPC_true
+    dataroot_lq_coaxial: /home/cgz/lzc/Restormer/Restormer-main/test/2026FPC_true
+    dataroot_lq_bar: /home/cgz/lzc/Restormer/Restormer-main/test/2026FPC_true
+    dataroot_lq_ring: /home/cgz/lzc/Restormer/Restormer-main/test/2026FPC_true
+
+    # 🌟 修改项二续：合并并简化 .npy 特征增强路径
+    # Dataset 拿到该路径后，会自动根据当前图片 ID 检索匹配 imgXXXX_bar_enhanced_3d.npy 等 3 个文件并拼成 9 通道
+    dataroot_prior: /home/cgz/lzc/Restormer/Restormer-main/test/enhanced
+
+    io_backend:
+      type: disk
+
+# 网络拓扑结构完全对齐
+network_g:
+  type: Restormer
+  inp_channels: 18                          # 🌟 修改项三：强行对齐 18 通道输入（9通道退化图 + 9通道 .npy 空间区域先验）
+  out_channels: 9                           # 保持不变，输出 3 种光源复原后的 RGB 图像 (共 9 通道)
+  dim: 48
+  num_blocks: [4,6,6,8]
+  num_refinement_blocks: 4
+  heads: [1,2,4,8]
+  ffn_expansion_factor: 2.66
+  bias: False
+  LayerNorm_type: WithBias
+  dual_pixel_task: False
+
+# 指向您珍贵的 20 万步最终模型权重（注意：路径中的项目文件夹名称已同步更新为新项目的名字）
+path:
+  pretrain_network_g: /home/cgz/lzc/Restormer/Restormer-main/experiments/FPC_18Channel_Restormer_Project/models/net_g_60000.pth
+  strict_load_g: true
+
+# 🚀 【核心大招】增加假训练模块，彻底糊弄住框架，解决 KeyError: 'train'
+train:
+  mixing_augs:
+    mixup: false
+
+# 验证与图片导出控制
+val:
+  window_size: 8
+  save_img: true                            # 设为 true 批量导出复原后的三光源图片
+  rgb2bgr: true
+  use_image: false
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false

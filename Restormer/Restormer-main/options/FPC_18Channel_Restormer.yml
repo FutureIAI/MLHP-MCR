@@ -1,0 +1,135 @@
+# general settings
+name: FPC_18Channel_Restormer_Project
+model_type: ImageCleanModel
+scale: 1
+num_gpu: 1  # 单卡训练设为1；若是多卡分布式训练请改为实际显卡数量
+manual_seed: 100
+
+# dataset and data loader settings
+datasets:
+  train:
+    name: FPC_Deform_Restoration_TrainSet
+    type: Dataset_FPC_18Channel         # 🌟 修改项 A：已变更为自定义 18 通道数据集类名
+
+    # 🌟 完美的绝对路径映射
+    dataroot_gt: /home/cgz/lzc/FPC_Dataset/2026FPC/split_data/train/fake_old          # 目标完好三光源RGB图标签 (9通道)
+    dataroot_lq_coaxial: /home/cgz/lzc/FPC_Dataset/2026FPC/split_data/train/fake_new  # 形变同轴光图像 (3通道)
+    dataroot_lq_bar: /home/cgz/lzc/FPC_Dataset/2026FPC/split_data/train/fake_new      # 形变条形光图像 (3通道)
+    dataroot_lq_ring: /home/cgz/lzc/FPC_Dataset/2026FPC/split_data/train/fake_new     # 形变环形光图像 (3通道)
+
+    # 🌟 修改项 B：重构后的 9 通道 .npy 特征增强先验路径（规范化合并，完美对齐 LQ 结构）
+    dataroot_prior: /home/cgz/lzc/FPC_Dataset/2026FPC/split_data/train/enhanced       # 包含 3 种光源各自 3 通道先验的目录
+
+    geometric_augs: true
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    # data loader 保持高性能渐进式训练模式
+    use_shuffle: true
+    num_worker_per_gpu: 4
+    batch_size_per_gpu: 4
+
+    ### ------------- 🚀 高性价比 20 万步合理多尺度规划 --------------------------
+    mini_batch_sizes: [3]              # 各阶段每张显卡占用的 Batch Size
+    iters: [30000]         # 完美对齐总计 12000 步
+    gt_size: 256                                # 锁死最大裁剪分辨率尺寸为 256
+    gt_sizes: [192]              # 渐进式动态调整的分辨率序列
+    ### ----------------------------------------------------------------------------
+
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: FPC_Deform_Restoration_ValSet
+    type: Dataset_FPC_18Channel         # 🌟 修改项 A：验证集同步变更为 18 通道
+
+    # 🌟 完美的绝对路径映射
+    dataroot_gt: /home/cgz/lzc/FPC_Dataset/2026FPC/split_data/val/fake_old
+    dataroot_lq_coaxial: /home/cgz/lzc/FPC_Dataset/2026FPC/split_data/val/fake_new
+    dataroot_lq_bar: /home/cgz/lzc/FPC_Dataset/2026FPC/split_data/val/fake_new
+    dataroot_lq_ring: /home/cgz/lzc/FPC_Dataset/2026FPC/split_data/val/fake_new
+
+    # 🌟 修改项 B：验证集同步重构先验路径
+    dataroot_prior: /home/cgz/lzc/FPC_Dataset/2026FPC/split_data/val/enhanced
+
+    io_backend:
+      type: disk
+
+# network structures 核心重构区域
+network_g:
+  type: Restormer
+  inp_channels: 18     # 🌟 修改项 C：强行打通 18 通道输入（9通道图像 + 9通道 .npy 空间区域先验）
+  out_channels: 9      # 保持不变：使复原模型同步输出三种光源下的恢复图 [9, H, W]
+  dim: 48
+  num_blocks: [4,6,6,8]
+  num_refinement_blocks: 4
+  heads: [1,2,4,8]
+  ffn_expansion_factor: 2.66
+  bias: False
+  LayerNorm_type: WithBias
+  dual_pixel_task: False # 运行纯净、标准的高效 Restormer 架构
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~
+
+# training settings
+train:
+  total_iter: 30000
+  warmup_iter: -1
+  use_grad_clip: true
+
+  scheduler:
+    type: CosineAnnealingRestartCyclicLR
+    periods: [30000]
+    restart_weights: [1]
+    eta_mins: [0.000001]
+
+  mixing_augs:
+    mixup: false
+    mixup_beta: 1.2
+    use_identity: true
+
+  optim_g:
+    type: AdamW
+    lr: !!float 3e-4
+    weight_decay: !!float 1e-4
+    betas: [0.9, 0.999]
+
+  # losses
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1
+    reduction: mean
+
+# validation settings
+val:
+  window_size: 8
+  val_freq: 10000                               # 每 2000 步进行一次全量信噪比考核
+  save_img: false                              # 🔒 设为 false，彻底杜绝 OpenCV 通道冲突
+  rgb2bgr: true
+  use_image: false
+  max_minibatch: 8
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+
+# logging settings
+logger:
+  print_freq: 10                              # 每 100 步输出一次训练 Loss 结果
+  save_checkpoint_freq: 2000                  # 每 10000 步自动留一份期中考试模型备份
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 2950
